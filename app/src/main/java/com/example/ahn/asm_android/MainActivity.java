@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.media.Image;
@@ -29,6 +30,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
+import java.util.Date;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -50,23 +52,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-
-        int permissionCheck = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE);
-
-        if(permissionCheck== PackageManager.PERMISSION_DENIED){
-            //if denied stroage, request permission
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1);
-
-            //still denied stroage after requesting
-            if(permissionCheck== PackageManager.PERMISSION_DENIED) {
-                Toast toast = Toast.makeText(this, "기능 사용을 위한 권한 동의가 필요합니다 설정에서 변경해주세요", Toast.LENGTH_SHORT);
-                toast.show();
-                return;
-            }
-        }else{
-            //allow stroage
-        }
-
         //get screen size information
         final DisplayMetrics metrics = new DisplayMetrics();
         Display display = getWindowManager().getDefaultDisplay();
@@ -74,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
 
         width = metrics.widthPixels;
         height = metrics.heightPixels;
+        density = metrics.densityDpi;
 
         Log.e("width",width+"");
         Log.e("height",height+"");
@@ -81,9 +67,6 @@ public class MainActivity extends AppCompatActivity {
         mImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         mpm = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mpm.createScreenCaptureIntent(),REQUEST_CODE_MIRROR);
-        density = metrics.densityDpi;
-
-        //myThread.start();
     }
 
     @Override
@@ -96,20 +79,18 @@ public class MainActivity extends AppCompatActivity {
                 if (mediaProjection != null) {
                     int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
                     mediaProjection.createVirtualDisplay("VirtualDisplay", width, height, density, flags, mImageReader.getSurface(), null, null);
-                    //mImageReader = mImageReader;
-
                     myThread.start();
 
                 }
             }else{
-                Toast toast = Toast.makeText(this, "권한을 허용해야 합니다.",
+                Toast toast = Toast.makeText(this, "should allow permission.",
                         Toast.LENGTH_SHORT);
                 toast.show();
                 finish();
             }
             super.onActivityResult(requestCode, resultCode, data);
         }else{
-            Toast toast = Toast.makeText(this, "권한을 허용해야 합니다.",
+            Toast toast = Toast.makeText(this, "should allow permission.",
                     Toast.LENGTH_SHORT);
             toast.show();
             finish();
@@ -132,9 +113,10 @@ public class MainActivity extends AppCompatActivity {
                 dis = new DataInputStream(is);
 
                 while(true) {
+                    Date startTime2 = new Date();
                     byte [] bytes = new byte[4];
 
-                    //PC Server request screen image
+                    //PC Server requested screen image
                     dis.read(bytes,0,4);
 
                     Image image = null;
@@ -145,7 +127,16 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
 
+                    Date startTime = new Date();
+
                     byte [] imageBytes = ImageToByteArray(image);
+                    image.close();
+                    image=null;
+
+                    Date endTime = new Date();
+                    long lTime = endTime.getTime() - startTime.getTime();
+                    Log.e("Image to byte array","TIME : " + lTime + "(ms)");
+
                     Log.e("size",imageBytes.length+"");
                     bytes = intToByteArray(imageBytes.length);
 
@@ -154,6 +145,9 @@ public class MainActivity extends AppCompatActivity {
 
                     //send image byte stream
                     dos.write(imageBytes,0,imageBytes.length);
+                    Date endTime2 = new Date();
+                    long lTime2 = endTime2.getTime() - startTime2.getTime();
+                    Log.e("mirror process","TIME : " + lTime2 + "(ms)");
                 }
 
             }catch(SocketException se){
@@ -184,25 +178,36 @@ public class MainActivity extends AppCompatActivity {
             final Image.Plane[] planes = image.getPlanes();
             final ByteBuffer buffer = planes[0].getBuffer();
             int pixelStride = planes[0].getPixelStride();
+
+            int width= image.getWidth();
+            int height = image.getHeight();
+            Log.e(width+"*",height+"");
+
             int rowStride = planes[0].getRowStride();
             int rowPadding = rowStride - pixelStride * width;
 
+            //image to bitmap
             Bitmap bitmap = Bitmap.createBitmap(width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888);
             bitmap.copyPixelsFromBuffer(buffer);
-            Bitmap cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height);
+            buffer.clear();
+
+            //bitmap resize
+            Bitmap resized = Bitmap.createScaledBitmap(bitmap, width/4, height/4, true);
             bitmap.recycle();
             bitmap = null;
-            image.close();
-            image = null;
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            cropped.compress(Bitmap.CompressFormat.JPEG, 40, out);
 
-            cropped.recycle();
-            cropped = null;
-            buffer.clear();
+            //bitmap to stream
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            resized.compress(Bitmap.CompressFormat.JPEG, 60, out);
+            resized.recycle();
+            resized=null;
+
+            //stream to byte array
             byte[] bytes = out.toByteArray();
             out.close();
+
             return bytes;
+
         }catch(IOException ioe){
             ioe.printStackTrace();
             return null;
