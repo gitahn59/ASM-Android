@@ -3,23 +3,23 @@ package com.example.ahn.asm_android;
 import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.Toast;
+
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -34,9 +34,6 @@ import java.util.Date;
 
 public class MainActivity extends AppCompatActivity {
 
-    private String ip="192.168.0.12";
-    private int port = 9876;
-
     private MediaProjectionManager mpm;
     private MediaProjection mediaProjection;
     private ImageReader mImageReader;
@@ -47,10 +44,43 @@ public class MainActivity extends AppCompatActivity {
     int height;
     int density;
 
+    Connector ct;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        Button btn = (Button)findViewById(R.id.button);
+        btn.setOnClickListener(new View.OnClickListener(){
+            @Override
+            public void onClick(View v){
+                EditText et = (EditText)findViewById(R.id.editText);
+                String code = et.getText().toString();
+                ct = new Connector("3171");
+                Thread getJson= new Thread() {
+                    public void run() {
+                        ct.GetServerInfo();
+                    }
+                };
+                getJson.start();
+            }
+        });
+
+        Button btn2 = (Button)findViewById(R.id.button2);
+        btn2.setOnClickListener(new View.OnClickListener(){
+            @Override
+            public void onClick(View v){
+                if(ct!=null) {
+                    if(ct.isReady)
+                        startActivityForResult(mpm.createScreenCaptureIntent(), REQUEST_CODE_MIRROR);
+                }else{
+                    Toast toast = Toast.makeText(MainActivity.this, "check your code",
+                            Toast.LENGTH_SHORT);
+                    toast.show();
+                }
+            }
+        });
 
         //get screen size information
         final DisplayMetrics metrics = new DisplayMetrics();
@@ -61,18 +91,14 @@ public class MainActivity extends AppCompatActivity {
         height = metrics.heightPixels;
         density = metrics.densityDpi;
 
-        Log.e("width",width+"");
-        Log.e("height",height+"");
-
         mImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         mpm = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mpm.createScreenCaptureIntent(),REQUEST_CODE_MIRROR);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_CODE_MIRROR) {
-            // 사용자가 권한을 허용해주었는지에 대한 처리
+            // permission check
             if (resultCode == RESULT_OK) {
                 mediaProjection = mpm.getMediaProjection(resultCode, data);
 
@@ -80,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
                     int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR;
                     mediaProjection.createVirtualDisplay("VirtualDisplay", width, height, density, flags, mImageReader.getSurface(), null, null);
                     myThread.start();
-
                 }
             }else{
                 Toast toast = Toast.makeText(this, "should allow permission.",
@@ -106,7 +131,7 @@ public class MainActivity extends AppCompatActivity {
             DataInputStream dis=null;
 
             try {
-                socket = new Socket(ip,port);
+                socket = new Socket(ct.GetIp(),ct.GetPort());
                 os = socket.getOutputStream();
                 dos = new DataOutputStream(os);
                 is = socket.getInputStream();
